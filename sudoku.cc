@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 using namespace std;
 
@@ -13,6 +14,12 @@ struct Board {
     int board[9][9];
     bool avail[9][9][10];
     int availCount[9][9];
+};
+
+struct Coordinate {
+    Coordinate(int x, int y) : x(x), y(y) {};
+    int x;
+    int y;
 };
 
 void printBoardSolution(Board& b, ostream& out) {
@@ -24,7 +31,14 @@ void printBoardSolution(Board& b, ostream& out) {
     out << endl;
 }
 
-void printBoardAvail(Board& b, ostream& out) {
+void printVector(vector<Coordinate> v) {
+    for (auto i: v) {
+        cout << '[' << i.x << ',' << i.y << "], ";
+    }
+    cout << endl;
+}
+
+void printBoardAvail(const Board& b, ostream& out) {
     for (int i = 0; i < 9; i++) {
         // print avail
         for (int j = 0; j < 9; j++) {
@@ -235,10 +249,133 @@ int propagate(Board& b) {
     return 0;
 }
 
+int findConflict(const Board& b, const vector<Coordinate>& vars) {
+    printBoardAvail(b, cout);
+    Coordinate last = vars.back();
+    int x = last.x;
+    int y = last.y;
+
+    int rskip = 9999999;
+    int skip = 0;
+
+    for (int k = 1; k <= 9; k++) {
+        bool hasMatch = false;
+        cout << "Trying " << k << endl;
+        // if the "affecting" cell is not a variable it is from the
+        // input and therefore always rules out the currently tried
+        // assignment (k).  If it is a variable, we set it a match and
+        // save the "jump" distance.
+
+        for (int l = 0; l < 9; l++) {
+            cout << "    row: " << b.board[x][l] << endl;
+            if (b.board[x][l] == k) {
+                skip = 0;
+                // was it a variable?
+                for (auto v: vars) {
+                    if (++skip == 0) continue;
+                    if (v.x == x && v.y == l) {
+                        cout << "  Variable match row [" << v.x << "," << v.y << "] for " << k << endl;
+                        hasMatch = true;
+                        if (skip < rskip) {
+                            rskip = skip;
+                        }
+                    }
+                }
+                if (!hasMatch) cout << "  Constant match row [" << x << "," << l << "] for " << k << endl;
+                goto next;
+            }
+            if (b.board[l][y] == k) {
+                skip = 0;
+                // was it a variable?
+                for (auto v: vars) {
+                    if (++skip == 0) continue;
+                    if (v.x == l && v.y == y) {
+                        cout << "  Variable match col [" << v.x << "," << v.y << "] for " << k << endl;
+                        hasMatch = true;
+                        if (skip < rskip) {
+                            rskip = skip;
+                        }
+                    }
+                }
+                if (!hasMatch) cout << "  Constant match col [" << l << "," << y << "] for " << k << endl;
+                goto next;
+            }
+        }
+
+        // prop block
+        for (int c = (x/3)*3; c < ((x/3)+1)*3; c++) {
+            for (int r = (y/3)*3; r < ((y/3)+1)*3; r++) {
+                skip = 0;
+                // was it a variable?
+                for (auto v: vars) {
+                    if (++skip == 0) continue;
+                    if (v.x == c && v.y == r) {
+                        cout << "  Variable match box [" << v.x << "," << v.y << "] for " << k << endl;
+                        hasMatch = true;
+                        if (skip < rskip) {
+                            rskip = skip;
+                        }
+                    }
+                }
+                if (!hasMatch) cout << "  Constant match box [" << c << "," << r << "] for " << k << endl;
+                goto next;
+            }
+        }
+        next:
+        continue;
+    }
+
+    return rskip;
+
+
+    // cout << "Assigned variable: [" << x << "," << y << "]" << endl;
+    // // iterate the domain of [x,y] and find the variable in history
+    // // which invalidates its choice in the current step.  We can then
+    // // backjump to the most recent such variable assignment.
+    // for (int k = 1; k <= 9; k++) {
+    //     vector<Coordinate>::const_reverse_iterator r = vars.rbegin();
+    //     ++r;
+    //     skip = 0;
+    //     cout << "Available k is " << k << endl;
+    //     for (; r != vars.rend(); ++r) {
+    //         skip++;
+    //         Coordinate v = *r;
+    //         if (k != b.board[v.x][v.y]) {
+    //             continue;
+    //         }
+
+    //         cout << "Testing conflict for [" << v.x << "," << v.y << "]{" << b.board[v.x][v.y] <<
+    //             "} for " << k << endl;
+
+    //         // if the variable was in a position which has an
+    //         // effect (= constraint) on the current cell.
+    //         if (v.x == x || // variable is on the same row
+    //             v.y == y || // variable is on the same column
+    //             (((v.x/3)*3 < x && x < ((v.x/3)+1)*3) &&
+    //              ((v.y/3)*3 < y && y < ((v.y/3)+1)*3)) // same block
+    //             ) {
+    //             cout << "  Conflict on [" << v.x << "," << v.y << "] for " << k << endl;
+    //             if (skip < rskip) {
+    //                 cout << "    Setting skip to " << skip << endl;
+    //                 rskip = skip;
+    //                 goto next;
+    //             }
+    //         }
+    //     }
+    //     cout << "No variable affected the current variable with current value" << endl;
+    //     return 9999999;
+
+    //     next:
+    //     continue;
+    // }
+
+    // return rskip;
+}
+
 int level = 0;
 int guesses = 0;
 
-int solve(Board& b) {
+int solve(Board& b, vector<Coordinate>& vars) {
     int x=10, y=10, minc = 10;
     bool solved = true;
     // find cell to guess
@@ -254,21 +391,35 @@ int solve(Board& b) {
             // means this position is unsolvable!!
             // this check alone almost doubles the speed on the hartest puzzles
             if (b.availCount[i][j] == 0 && !b.board[i][j]) {
+                // cout << "skip early" << endl;
+                //printBoardAvail(b, cout);
+                vars.pop_back();
                 return 0;
             }
         }
     }
+
+    vars.push_back(Coordinate(x, y));
+    printVector(vars);
 
     if (solved) {
         printBoardSolution(b,cout);
         return 1;
     }
 
-    if (x == 10) return 0;
+    // this is probably useless
+    if (x == 10) {
+        //cout << "skip no option" << endl;
+        vars.pop_back();
+        return 0;
+    }
 
+    //cout << "avail " << b.availCount[x][y] << endl;
+    //printBoardAvail(b, cout);
     // guess
     for (int k = 1; k <= 9; k++) {
         if (b.avail[x][y][k]) {
+            //cout << "guess " << k << endl;
             Board c;
             memcpy(&c,&b,sizeof(Board));
 
@@ -286,13 +437,19 @@ int solve(Board& b) {
             }
 
             level++;
-            int re = solve(c);
+            int re = solve(c, vars);
             level--;
             guesses++;
             if (re) return 1;
         }
     }
 
+    int conflict = findConflict(b, vars);
+    cout << "Conflict level: " << conflict << endl;
+
+    vars.pop_back();
+    //cout << "skip" << endl;
+    //printVector(vars);
     return 0;
 }
 
@@ -323,15 +480,17 @@ int main() {
         }
 
         init(b);
-
+        printBoardAvail(b, cout);
         if (propagate(b)) {
             printBoardSolution(b,cout);
             clean++;
         }
         else {
             guesses = 0;
-            int re = solve(b);
+            vector<Coordinate> vars;
+            int re = solve(b, vars);
             if (!re) cout << "wrong" << endl;
+            printVector(vars);
         }
     }
     cerr << clean << endl;
