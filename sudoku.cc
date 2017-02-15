@@ -14,6 +14,7 @@ struct Board {
     int board[9][9];
     bool avail[9][9][10];
     int availCount[9][9];
+    bool original[9][9];
 };
 
 struct Coordinate {
@@ -129,6 +130,25 @@ void init(Board& b) {
         for (int j = 0; j < 9; j++) {
             if (b.board[i][j] != 0) {
                 propagateCell(b,i,j,b.board[i][j]);
+            }
+        }
+    }
+}
+
+/*
+ * Initialize original cells to those which were propagated before the
+ * initial guess... we can use this to prune the domains.
+ *
+ * TODO: replace this with tracking of domains as guesses and
+ * propagation progress.
+ */
+void initOriginal(Board& b) {
+    for (int i = 0; i < 9; i++) {
+        for (int j = 0; j < 9; j++) {
+            if (b.board[i][j] != 0) {
+                b.original[i][j] = true;
+            } else {
+                b.original[i][j] = false;
             }
         }
     }
@@ -269,6 +289,10 @@ int findConflict(const Board& b, const vector<Coordinate>& vars) {
         for (int l = 0; l < 9; l++) {
             cout << "    row: " << b.board[x][l] << endl;
             if (b.board[x][l] == k) {
+                if (b.original[x][l]) {
+                    cout << "  Constant match row [" << x << "," << l << "] for " << k << endl;
+                    goto next;
+                }
                 skip = 0;
                 // was it a variable?
                 for (auto v: vars) {
@@ -281,10 +305,13 @@ int findConflict(const Board& b, const vector<Coordinate>& vars) {
                         }
                     }
                 }
-                if (!hasMatch) cout << "  Constant match row [" << x << "," << l << "] for " << k << endl;
-                goto next;
             }
+            cout << "    col: " << b.board[x][l] << endl;
             if (b.board[l][y] == k) {
+                if (b.original[l][y]) {
+                    cout << "  Constant match col [" << l << "," << y << "] for " << k << endl;
+                    goto next;
+                }
                 skip = 0;
                 // was it a variable?
                 for (auto v: vars) {
@@ -297,30 +324,36 @@ int findConflict(const Board& b, const vector<Coordinate>& vars) {
                         }
                     }
                 }
-                if (!hasMatch) cout << "  Constant match col [" << l << "," << y << "] for " << k << endl;
-                goto next;
             }
         }
 
         // prop block
         for (int c = (x/3)*3; c < ((x/3)+1)*3; c++) {
             for (int r = (y/3)*3; r < ((y/3)+1)*3; r++) {
-                skip = 0;
-                // was it a variable?
-                for (auto v: vars) {
-                    if (++skip == 0) continue;
-                    if (v.x == c && v.y == r) {
-                        cout << "  Variable match box [" << v.x << "," << v.y << "] for " << k << endl;
-                        hasMatch = true;
-                        if (skip < rskip) {
-                            rskip = skip;
+                if (b.board[c][r] == k) {
+                    cout << "    block: " << b.board[c][r] << endl;
+                    if (b.original[c][r]) {
+                        cout << "  Constant match box [" << c << "," << r << "] for " << k << endl;
+                        goto next;
+                    }
+                    skip = 0;
+                    // was it a variable?
+                    for (auto v: vars) {
+                        if (++skip == 0) continue;
+                        if (v.x == c && v.y == r) {
+                            cout << "  Variable match box [" << v.x << "," << v.y << "] for " << k << endl;
+                            hasMatch = true;
+                            if (skip < rskip) {
+                                rskip = skip;
+                            }
                         }
                     }
                 }
-                if (!hasMatch) cout << "  Constant match box [" << c << "," << r << "] for " << k << endl;
-                goto next;
             }
         }
+
+        if (!hasMatch) return 9999999;
+
         next:
         continue;
     }
@@ -393,7 +426,7 @@ int solve(Board& b, vector<Coordinate>& vars) {
             if (b.availCount[i][j] == 0 && !b.board[i][j]) {
                 // cout << "skip early" << endl;
                 //printBoardAvail(b, cout);
-                vars.pop_back();
+                //vars.pop_back();
                 return 0;
             }
         }
@@ -410,7 +443,7 @@ int solve(Board& b, vector<Coordinate>& vars) {
     // this is probably useless
     if (x == 10) {
         //cout << "skip no option" << endl;
-        vars.pop_back();
+        //vars.pop_back();
         return 0;
     }
 
@@ -449,7 +482,7 @@ int solve(Board& b, vector<Coordinate>& vars) {
 
     vars.pop_back();
     //cout << "skip" << endl;
-    //printVector(vars);
+    printVector(vars);
     return 0;
 }
 
@@ -480,12 +513,13 @@ int main() {
         }
 
         init(b);
-        printBoardAvail(b, cout);
+        //printBoardAvail(b, cout);
         if (propagate(b)) {
             printBoardSolution(b,cout);
             clean++;
         }
         else {
+            initOriginal(b);
             guesses = 0;
             vector<Coordinate> vars;
             int re = solve(b, vars);
